@@ -1,6 +1,7 @@
 import "./globals.css";
 import AuthGuard from "@/components/AuthGuard";
 import LogoutButton from "@/components/LogoutButton";
+import AutoSendWatcher from "@/components/AutoSendWatcher";
 
 export const metadata = {
   title: "Ofuq Smart Marketing",
@@ -16,10 +17,13 @@ export default function RootLayout({
     <html lang="ar" dir="rtl">
       <body className="bg-slate-100 text-slate-900">
         <AuthGuard>
+          <AutoSendWatcher />
+
           <div className="flex min-h-screen">
             <aside className="w-72 bg-slate-900 text-white flex flex-col p-6">
               <div>
                 <h1 className="text-3xl font-bold">Ofuq Smart</h1>
+
                 <p className="mt-2 text-sm text-slate-400">
                   Marketing Dashboard
                 </p>
@@ -31,6 +35,7 @@ export default function RootLayout({
                   ["المنتجات", "/products"],
                   ["العملاء", "/customers"],
                   ["الحملات", "/campaigns"],
+                  ["الأرشيف", "/archived-campaigns"],
                   ["التقارير", "/analytics"],
                 ].map(([item, href]) => (
                   <a
@@ -48,6 +53,7 @@ export default function RootLayout({
                   <p className="text-sm text-slate-400">
                     Ofuq Smart Marketing v1
                   </p>
+
                   <p className="mt-2 text-xs text-slate-500">
                     Protected Dashboard
                   </p>
