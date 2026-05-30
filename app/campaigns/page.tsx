@@ -169,14 +169,23 @@ export default function CampaignsPage() {
     loadCampaigns();
   }
 
-  async function resetDraft(id: string) {
-    await supabase
-      .from("campaigns")
-      .update({ status: "draft" })
-      .eq("id", id);
+  async function resendCampaign(id: string) {
+  const { data, error } = await supabase
+    .from("campaigns")
+    .update({
+      status: "scheduled",
+      scheduled_at: new Date().toISOString(),
+      sent_at: null,
+      failed_reason: null,
+    })
+    .eq("id", id)
+    .select();
 
-    loadCampaigns();
-  }
+  console.log("RESEND RESULT:", data);
+  console.log("RESEND ERROR:", error);
+
+  loadCampaigns();
+}
 
   async function duplicateCampaign(campaign: Campaign) {
     const { error } = await supabase.from("campaigns").insert([
@@ -383,7 +392,7 @@ export default function CampaignsPage() {
               </button>
 
               <button
-                onClick={() => resetDraft(campaign.id)}
+                onClick={() => resendCampaign(campaign.id)}
                 className="rounded-xl bg-slate-700 px-4 py-2 text-white"
               >
                 إعادة الإرسال
