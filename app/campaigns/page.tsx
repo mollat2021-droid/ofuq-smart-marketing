@@ -386,7 +386,7 @@ export default function CampaignsPage() {
                 onClick={() => resetDraft(campaign.id)}
                 className="rounded-xl bg-slate-700 px-4 py-2 text-white"
               >
-                إعادة مسودة
+                إعادة الإرسال
               </button>
 
               <button

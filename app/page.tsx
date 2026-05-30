@@ -65,7 +65,7 @@ export default function DashboardPage() {
     setClicksCount(totalClicks);
 
     setDraftCount(
-      activeCampaigns.filter((campaign) => campaign.status === "draft").length
+      activeCampaigns.filter((campaign) => campaign.status === "مسودة").length
     );
 
     setScheduledCount(
@@ -163,7 +163,7 @@ setTopCampaign(
               </p>
 
               <p className="mt-2 text-sm text-slate-500">
-                الحالة: {latestCampaign.status || "draft"}
+                الحالة: {latestCampaign.status || "مسودة"}
               </p>
             </div>
           ) : (
