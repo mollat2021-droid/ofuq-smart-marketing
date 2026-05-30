@@ -19,6 +19,23 @@ type Customer = {
   whatsapp: string | null;
 };
 
+function getRiyadhNowForDatabase() {
+  const now = new Date();
+
+  const riyadhDate = new Intl.DateTimeFormat("sv-SE", {
+    timeZone: "Asia/Riyadh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  }).format(now);
+
+  return riyadhDate.replace(" ", "T");
+}
+
 function getAppUrl(req: Request) {
   return process.env.NEXT_PUBLIC_APP_URL || new URL(req.url).origin;
 }
@@ -60,8 +77,6 @@ async function sendEmail({
               عرض المنتج
             </a>
           </p>
-          <hr style="margin:24px 0;border:none;border-top:1px solid #e5e7eb" />
-          <p style="font-size:12px;color:#6b7280">Ofuq Smart Marketing</p>
         </div>
       `,
     }),
@@ -109,14 +124,7 @@ async function sendWhatsApp({
 
   const data = await response.json();
 
-  if (!response.ok) {
-    return {
-      success: false,
-      error: JSON.stringify(data),
-    };
-  }
-
-  if (data?.error) {
+  if (!response.ok || data?.error) {
     return {
       success: false,
       error: JSON.stringify(data),
@@ -130,7 +138,7 @@ async function sendWhatsApp({
 }
 
 export async function GET(req: Request) {
-  const now = new Date().toISOString();
+  const now = getRiyadhNowForDatabase();
   const appUrl = getAppUrl(req);
 
   const { data: campaigns, error } = await supabase
@@ -152,6 +160,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       success: true,
       message: "No scheduled campaigns ready",
+      now,
       processed: 0,
     });
   }
@@ -170,7 +179,7 @@ export async function GET(req: Request) {
       .eq("id", campaign.customer_id)
       .single();
 
-    const trackingUrl = campaign.tracking_code
+    const trackingLink = campaign.tracking_code
       ? `${appUrl}/r/${campaign.tracking_code}`
       : campaign.product_link || appUrl;
 
@@ -193,7 +202,7 @@ export async function GET(req: Request) {
         to: campaign.customer_email,
         subject,
         content,
-        productLink: trackingUrl,
+        productLink: trackingLink,
       });
     }
 
@@ -208,7 +217,8 @@ ${productName}
 
 ${content}
 
-${trackingUrl}`,
+🚀 ابدأ الآن:
+${trackingLink}`,
       });
     }
 
@@ -236,11 +246,13 @@ ${trackingUrl}`,
       status: finalStatus,
       email_error: emailResult.error,
       whatsapp_error: whatsappResult.error,
+      tracking_link: trackingLink,
     });
   }
 
   return NextResponse.json({
     success: true,
+    now,
     processed: results.length,
     results,
   });

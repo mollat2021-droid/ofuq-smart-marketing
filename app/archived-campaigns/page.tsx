@@ -17,6 +17,14 @@ type Campaign = {
   archived: boolean | null;
 };
 
+const statusLabels: Record<string, string> = {
+  draft: "مسودة",
+  scheduled: "مجدولة",
+  sent: "مرسلة",
+  failed: "فاشلة",
+  sending: "قيد الإرسال",
+};
+
 export default function ArchivedCampaignsPage() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([]);
 
@@ -31,6 +39,9 @@ export default function ArchivedCampaignsPage() {
   }
 
   async function restoreCampaign(id: string) {
+    const ok = confirm("هل تريد استعادة هذه الحملة؟");
+    if (!ok) return;
+
     await supabase
       .from("campaigns")
       .update({ archived: false })
@@ -40,37 +51,12 @@ export default function ArchivedCampaignsPage() {
   }
 
   async function deleteCampaign(id: string) {
-    const ok = confirm("حذف نهائي؟");
+    const ok = confirm("هل تريد حذف هذه الحملة نهائيًا؟ لا يمكن التراجع.");
     if (!ok) return;
 
     await supabase.from("campaigns").delete().eq("id", id);
 
     loadArchivedCampaigns();
-  }
-
-  async function duplicateCampaign(campaign: Campaign) {
-    const { error } = await supabase.from("campaigns").insert([
-      {
-        title: `${campaign.title} (نسخة)`,
-        product_name: campaign.product_name,
-        description: campaign.description,
-        product_link: campaign.product_link,
-        customer_email: campaign.customer_email,
-        customer_id: campaign.customer_id,
-        scheduled_at: null,
-        status: "draft",
-        clicks: 0,
-        archived: false,
-      },
-    ]);
-
-    if (error) {
-      alert("فشل نسخ الحملة");
-      console.log(error);
-      return;
-    }
-
-    alert("تم نسخ الحملة بنجاح");
   }
 
   useEffect(() => {
@@ -108,7 +94,10 @@ export default function ArchivedCampaignsPage() {
             </p>
 
             <p className="mt-2 text-sm text-slate-500">
-              الحالة: {campaign.status}
+              الحالة:{" "}
+              {campaign.status
+                ? statusLabels[campaign.status] || campaign.status
+                : "مسودة"}
             </p>
 
             <div className="mt-6 flex gap-2 flex-wrap">
@@ -117,13 +106,6 @@ export default function ArchivedCampaignsPage() {
                 className="rounded-xl bg-green-600 px-4 py-2 text-white"
               >
                 استعادة
-              </button>
-
-              <button
-                onClick={() => duplicateCampaign(campaign)}
-                className="rounded-xl bg-blue-600 px-4 py-2 text-white"
-              >
-                نسخ الحملة
               </button>
 
               <button
