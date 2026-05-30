@@ -76,14 +76,22 @@ export default function CampaignsPage() {
   }
 
   async function loadCampaigns() {
-    const { data } = await supabase
-      .from("campaigns")
-      .select("*")
-      .eq("archived", false)
-      .order("created_at", { ascending: false });
+  const { data } = await supabase
+    .from("campaigns")
+    .select("*")
+    .eq("archived", false)
+    .order("created_at", { ascending: false });
 
-    setCampaigns(data || []);
-  }
+  setCampaigns(data || []);
+}
+
+function getCustomerName(campaign: Campaign) {
+  const customer = customers.find(
+    (customer) => customer.id === campaign.customer_id
+  );
+
+  return customer?.full_name || campaign.customer_email || "غير محدد";
+}
 
   async function createCampaign() {
     if (!title || !selectedProductId) {
@@ -352,7 +360,7 @@ export default function CampaignsPage() {
             </p>
 
             <p className="mt-2 text-slate-600">
-              العميل: {campaign.customer_email}
+              العميل: {getCustomerName(campaign)}
             </p>
 
             <p className="mt-2 text-slate-600">
