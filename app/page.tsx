@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
 
@@ -8,10 +9,19 @@ type Campaign = {
   title: string | null;
   campaign_name?: string | null;
   product_name: string | null;
+  customer_email?: string | null;
   status: string | null;
   clicks: number | null;
   archived: boolean | null;
   created_at: string;
+};
+
+const statusLabels: Record<string, string> = {
+  draft: "مسودة",
+  scheduled: "مجدولة",
+  sent: "مرسلة",
+  failed: "فاشلة",
+  sending: "قيد الإرسال",
 };
 
 export default function DashboardPage() {
@@ -28,7 +38,11 @@ export default function DashboardPage() {
   const [successRate, setSuccessRate] = useState(0);
 
   const [latestCampaign, setLatestCampaign] = useState<Campaign | null>(null);
+  const [latestFailedCampaign, setLatestFailedCampaign] =
+    useState<Campaign | null>(null);
   const [topCampaign, setTopCampaign] = useState<Campaign | null>(null);
+  const [bestProduct, setBestProduct] = useState("غير متوفر");
+  const [bestCustomer, setBestCustomer] = useState("غير متوفر");
 
   async function loadDashboard() {
     const { count: products } = await supabase
@@ -59,62 +73,76 @@ export default function DashboardPage() {
       0
     );
 
+    const sent = activeCampaigns.filter(
+      (campaign) => campaign.status === "sent"
+    ).length;
+
+    const failed = activeCampaigns.filter(
+      (campaign) => campaign.status === "failed"
+    ).length;
+
+    const scheduled = activeCampaigns.filter(
+      (campaign) => campaign.status === "scheduled"
+    ).length;
+
+    const drafts = activeCampaigns.filter(
+      (campaign) => campaign.status === "draft"
+    ).length;
+
+    const rate =
+      sent + failed > 0 ? Math.round((sent / (sent + failed)) * 100) : 0;
+
+    const sortedByClicks = [...activeCampaigns].sort(
+      (a, b) => (b.clicks || 0) - (a.clicks || 0)
+    );
+
+    const failedCampaigns = activeCampaigns.filter(
+      (campaign) => campaign.status === "failed"
+    );
+
+    const productClicks: Record<string, number> = {};
+    const customerClicks: Record<string, number> = {};
+
+    activeCampaigns.forEach((campaign) => {
+      const productName = campaign.product_name || "غير محدد";
+      const customerEmail = campaign.customer_email || "غير محدد";
+      const clicks = campaign.clicks || 0;
+
+      productClicks[productName] = (productClicks[productName] || 0) + clicks;
+      customerClicks[customerEmail] =
+        (customerClicks[customerEmail] || 0) + clicks;
+    });
+
+    const topProduct = Object.entries(productClicks).sort(
+      (a, b) => b[1] - a[1]
+    )[0];
+
+    const topCustomer = Object.entries(customerClicks).sort(
+      (a, b) => b[1] - a[1]
+    )[0];
+
     setProductsCount(products || 0);
     setCustomersCount(customers || 0);
     setCampaignsCount(activeCampaigns.length);
     setClicksCount(totalClicks);
 
-    setDraftCount(
-      activeCampaigns.filter((campaign) => campaign.status === "مسودة").length
-    );
+    setDraftCount(drafts);
+    setScheduledCount(scheduled);
+    setSentCount(sent);
+    setFailedCount(failed);
+    setArchivedCount(archivedCampaigns.length);
+    setSuccessRate(rate);
 
-    setScheduledCount(
-      activeCampaigns.filter((campaign) => campaign.status === "scheduled")
-        .length
-    );
-
-    setSentCount(
-      activeCampaigns.filter((campaign) => campaign.status === "sent").length
-    );
-
-    setFailedCount(
-      activeCampaigns.filter((campaign) => campaign.status === "failed").length
-    );
-
-setArchivedCount(archivedCampaigns.length);
-
-const rate =
-  activeCampaigns.length > 0
-    ? Math.round(
-        (
-          activeCampaigns.filter(
-            (campaign) =>
-              campaign.status === "sent"
-          ).length /
-          activeCampaigns.length
-        ) * 100
-      )
-    : 0;
-
-setSuccessRate(rate);
-
-setLatestCampaign(
-  activeCampaigns[0] || null
-);
-
-setTopCampaign(
-  [...activeCampaigns].sort(
-    (a, b) =>
-      (b.clicks || 0) -
-      (a.clicks || 0)
-  )[0] || null
-);
     setLatestCampaign(activeCampaigns[0] || null);
+    setLatestFailedCampaign(failedCampaigns[0] || null);
+    setTopCampaign(sortedByClicks[0] || null);
 
-    setTopCampaign(
-      [...activeCampaigns].sort(
-        (a, b) => (b.clicks || 0) - (a.clicks || 0)
-      )[0] || null
+    setBestProduct(
+      topProduct ? `${topProduct[0]} - ${topProduct[1]} نقرات` : "غير متوفر"
+    );
+
+    setBestCustomer(
+      topCustomer ? `${topCustomer[0]} - ${topCustomer[1]} نقرات` : "غير متوفر"
     );
   }
 
@@ -124,74 +152,85 @@ setTopCampaign(
 
   return (
     <div>
-      <h1 className="text-3xl font-bold">لوحة التحكم الذكية</h1>
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h1 className="text-3xl font-bold">لوحة التحكم الذكية</h1>
+          <p className="mt-2 text-slate-600">
+            متابعة النظام التسويقي بالكامل.
+          </p>
+        </div>
 
-      <p className="mt-2 text-slate-600">
-        متابعة النظام التسويقي بالكامل.
-      </p>
+        <Link
+          href="/analytics"
+          className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white"
+        >
+          عرض التقارير
+        </Link>
+      </div>
 
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-4 gap-6">
+      <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-4">
         <StatCard title="المنتجات" value={productsCount} color="text-blue-600" />
         <StatCard title="العملاء" value={customersCount} color="text-green-600" />
         <StatCard title="الحملات النشطة" value={campaignsCount} color="text-purple-600" />
         <StatCard title="النقرات" value={clicksCount} color="text-orange-600" />
       </div>
 
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-6 gap-6">
+      <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-6">
+        <StatCard title="مسودات" value={draftCount} color="text-slate-600" />
         <StatCard title="مجدولة" value={scheduledCount} color="text-blue-600" />
         <StatCard title="مرسلة" value={sentCount} color="text-green-600" />
         <StatCard title="فاشلة" value={failedCount} color="text-red-600" />
         <StatCard title="مؤرشفة" value={archivedCount} color="text-orange-600" />
+        <StatCard title="معدل النجاح %" value={successRate} color="text-emerald-600" />
       </div>
-<StatCard
-  title="معدل النجاح %"
-  value={successRate}
-  color="text-emerald-600"
-/>
-      <div className="mt-8 grid grid-cols-1 md:grid-cols-2 gap-6">
-        <div className="rounded-3xl border bg-white p-6">
-          <h2 className="text-xl font-bold">آخر حملة</h2>
 
-          {latestCampaign ? (
-            <div className="mt-4">
-              <p className="font-bold">
-                {latestCampaign.title || latestCampaign.campaign_name}
-              </p>
+      <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+        <InfoCard title="أفضل منتج أداءً" value={bestProduct} />
+        <InfoCard title="أفضل عميل تفاعلًا" value={bestCustomer} />
 
-              <p className="mt-2 text-sm text-slate-500">
-                المنتج: {latestCampaign.product_name || "غير محدد"}
-              </p>
+        <InfoCard
+          title="أفضل حملة تفاعلًا"
+          value={topCampaign?.title || topCampaign?.campaign_name || "لا توجد بيانات"}
+          description={
+            topCampaign
+              ? `النقرات: ${topCampaign.clicks || 0} | المنتج: ${
+                  topCampaign.product_name || "غير محدد"
+                }`
+              : ""
+          }
+        />
 
-              <p className="mt-2 text-sm text-slate-500">
-                الحالة: {latestCampaign.status || "مسودة"}
-              </p>
-            </div>
-          ) : (
-            <p className="mt-4 text-slate-500">لا توجد حملات نشطة</p>
-          )}
-        </div>
+        <InfoCard
+          title="آخر حملة"
+          value={
+            latestCampaign?.title ||
+            latestCampaign?.campaign_name ||
+            "لا توجد حملات نشطة"
+          }
+          description={
+            latestCampaign
+              ? `الحالة: ${
+                  statusLabels[latestCampaign.status || ""] ||
+                  latestCampaign.status ||
+                  "غير محدد"
+                } | المنتج: ${latestCampaign.product_name || "غير محدد"}`
+              : ""
+          }
+        />
 
-        <div className="rounded-3xl border bg-white p-6">
-          <h2 className="text-xl font-bold">أفضل حملة تفاعلًا</h2>
-
-          {topCampaign ? (
-            <div className="mt-4">
-              <p className="font-bold">
-                {topCampaign.title || topCampaign.campaign_name}
-              </p>
-
-              <p className="mt-2 text-sm text-slate-500">
-                عدد النقرات: {topCampaign.clicks || 0}
-              </p>
-
-              <p className="mt-2 text-sm text-slate-500">
-                المنتج: {topCampaign.product_name || "غير محدد"}
-              </p>
-            </div>
-          ) : (
-            <p className="mt-4 text-slate-500">لا توجد بيانات</p>
-          )}
-        </div>
+        <InfoCard
+          title="آخر حملة فاشلة"
+          value={
+            latestFailedCampaign?.title ||
+            latestFailedCampaign?.campaign_name ||
+            "لا توجد حملات فاشلة"
+          }
+          description={
+            latestFailedCampaign
+              ? `المنتج: ${latestFailedCampaign.product_name || "غير محدد"}`
+              : ""
+          }
+        />
       </div>
     </div>
   );
@@ -210,6 +249,27 @@ function StatCard({
     <div className="rounded-3xl border bg-white p-6">
       <p className="text-slate-500">{title}</p>
       <h2 className={`mt-3 text-4xl font-bold ${color}`}>{value}</h2>
+    </div>
+  );
+}
+
+function InfoCard({
+  title,
+  value,
+  description,
+}: {
+  title: string;
+  value: string;
+  description?: string;
+}) {
+  return (
+    <div className="rounded-3xl border bg-white p-6">
+      <p className="text-slate-500">{title}</p>
+      <h2 className="mt-3 text-xl font-bold">{value}</h2>
+
+      {description ? (
+        <p className="mt-2 text-sm text-slate-500">{description}</p>
+      ) : null}
     </div>
   );
 }
