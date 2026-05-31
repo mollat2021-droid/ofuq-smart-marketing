@@ -12,6 +12,22 @@ type Customer = {
   created_at: string;
 };
 
+type Campaign = {
+  id: string;
+  title: string | null;
+  customer_id: string | null;
+  customer_email: string | null;
+  clicks: number | null;
+  status: string | null;
+  created_at: string;
+};
+
+type CustomerStats = {
+  campaigns: number;
+  clicks: number;
+  lastInteraction: string;
+};
+
 export default function CustomersPage() {
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -19,11 +35,10 @@ export default function CustomersPage() {
   const [tags, setTags] = useState("");
 
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [campaigns, setCampaigns] = useState<Campaign[]>([]);
   const [loading, setLoading] = useState(false);
 
   const [searchInput, setSearchInput] = useState("");
-  const [search, setSearch] = useState("");
-
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editName, setEditName] = useState("");
   const [editEmail, setEditEmail] = useState("");
@@ -43,6 +58,24 @@ export default function CustomersPage() {
     }
 
     setCustomers(data || []);
+  }
+
+  async function loadCampaigns() {
+    const { data, error } = await supabase
+      .from("campaigns")
+      .select("*")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.log(error);
+      return;
+    }
+
+    setCampaigns(data || []);
+  }
+
+  async function loadData() {
+    await Promise.all([loadCustomers(), loadCampaigns()]);
   }
 
   async function addCustomer() {
@@ -76,7 +109,7 @@ export default function CustomersPage() {
     setEmail("");
     setWhatsapp("");
     setTags("");
-    loadCustomers();
+    loadData();
   }
 
   async function importCSV(file: File) {
@@ -109,7 +142,7 @@ export default function CustomersPage() {
     }
 
     alert("تم استيراد العملاء بنجاح");
-    loadCustomers();
+    loadData();
   }
 
   function startEdit(customer: Customer) {
@@ -160,7 +193,7 @@ export default function CustomersPage() {
 
     alert("تم تعديل العميل بنجاح");
     cancelEdit();
-    loadCustomers();
+    loadData();
   }
 
   async function deleteCustomer(id: string) {
@@ -169,10 +202,7 @@ export default function CustomersPage() {
 
     setLoading(true);
 
-    const { error } = await supabase
-      .from("customers")
-      .delete()
-      .eq("id", id);
+    const { error } = await supabase.from("customers").delete().eq("id", id);
 
     setLoading(false);
 
@@ -183,21 +213,55 @@ export default function CustomersPage() {
     }
 
     alert("تم حذف العميل");
-    loadCustomers();
-  }
-
-  function runSearch() {
-    setSearch(searchInput.trim());
+    loadData();
   }
 
   function clearSearch() {
     setSearchInput("");
-    setSearch("");
+  }
+
+  function getCustomerStats(customer: Customer): CustomerStats {
+    const relatedCampaigns = campaigns.filter((campaign) => {
+      return (
+        campaign.customer_id === customer.id ||
+        campaign.customer_email === customer.email
+      );
+    });
+
+    const clicks = relatedCampaigns.reduce(
+      (sum, campaign) => sum + (campaign.clicks || 0),
+      0
+    );
+
+    const latest = relatedCampaigns[0];
+
+    return {
+      campaigns: relatedCampaigns.length,
+      clicks,
+      lastInteraction: latest
+        ? new Date(latest.created_at).toLocaleDateString("ar-SA")
+        : "لا يوجد",
+    };
   }
 
   useEffect(() => {
-    loadCustomers();
+    loadData();
   }, []);
+
+  const totalClicks = customers.reduce(
+    (sum, customer) => sum + getCustomerStats(customer).clicks,
+    0
+  );
+
+  const totalCustomerCampaigns = customers.reduce(
+    (sum, customer) => sum + getCustomerStats(customer).campaigns,
+    0
+  );
+
+  const bestCustomer =
+    [...customers].sort(
+      (a, b) => getCustomerStats(b).clicks - getCustomerStats(a).clicks
+    )[0] || null;
 
   const filteredCustomers = customers.filter((customer) => {
     const keyword = searchInput.trim().toLowerCase();
@@ -214,32 +278,45 @@ export default function CustomersPage() {
 
   return (
     <div>
-      <h1 className="text-3xl font-bold">العملاء</h1>
+      <h1 className="text-3xl font-bold">إدارة العملاء CRM</h1>
 
       <p className="mt-2 text-slate-600">
-        إدارة واستيراد العملاء المهتمين.
+        إدارة العملاء وتحليل تفاعلهم مع الحملات التسويقية.
       </p>
 
-      <div className="mt-6 flex gap-2">
+      <div className="mt-8 grid gap-6 md:grid-cols-4">
+        <StatCard title="إجمالي العملاء" value={customers.length} color="text-blue-600" />
+        <StatCard title="حملات العملاء" value={totalCustomerCampaigns} color="text-purple-600" />
+        <StatCard title="نقرات العملاء" value={totalClicks} color="text-green-600" />
+        <StatCard
+          title="أفضل عميل"
+          value={bestCustomer ? getCustomerStats(bestCustomer).clicks : 0}
+          color="text-orange-600"
+        />
+      </div>
+
+      <div className="mt-8 rounded-3xl bg-white p-6 shadow-sm border">
+        <p className="text-slate-500">أفضل عميل تفاعلًا</p>
+        <h2 className="mt-3 text-xl font-bold">
+          {bestCustomer ? bestCustomer.full_name : "غير متوفر"}
+        </h2>
+        <p className="mt-2 text-sm text-slate-500">
+          {bestCustomer
+            ? `${getCustomerStats(bestCustomer).clicks} نقرات | ${
+                getCustomerStats(bestCustomer).campaigns
+              } حملات`
+            : "لا توجد بيانات كافية"}
+        </p>
+      </div>
+
+      <div className="mt-8 flex gap-2">
         <input
           type="text"
-          placeholder="بحث عن عميل..."
+          placeholder="بحث بالاسم أو الإيميل أو الواتساب أو التصنيف..."
           value={searchInput}
           onChange={(e) => setSearchInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") {
-              runSearch();
-            }
-          }}
           className="w-full rounded-2xl border p-4"
         />
-
-        <button
-          onClick={runSearch}
-          className="rounded-2xl bg-black px-6 text-white"
-        >
-          بحث
-        </button>
 
         <button
           onClick={clearSearch}
@@ -321,6 +398,7 @@ export default function CustomersPage() {
 
         {filteredCustomers.map((customer) => {
           const isEditing = editingId === customer.id;
+          const stats = getCustomerStats(customer);
 
           return (
             <div
@@ -375,46 +453,60 @@ export default function CustomersPage() {
                   </div>
                 </div>
               ) : (
-                <div className="flex items-start justify-between gap-4">
+                <div className="grid gap-6 md:grid-cols-[1fr_260px]">
                   <div>
-                    <h3 className="text-xl font-bold">
-                      {customer.full_name}
-                    </h3>
+                    <h3 className="text-xl font-bold">{customer.full_name}</h3>
 
                     <p className="mt-2 text-slate-600">
-                      {customer.email}
+                      الإيميل: {customer.email || "غير محدد"}
                     </p>
 
                     <p className="mt-1 text-slate-600">
-                      {customer.whatsapp}
+                      الواتساب: {customer.whatsapp || "غير محدد"}
                     </p>
 
                     <div className="mt-3 flex gap-2 flex-wrap">
-                      {customer.tags?.map((tag) => (
-                        <span
-                          key={tag}
-                          className="rounded-full bg-slate-100 px-3 py-1 text-sm"
-                        >
-                          {tag}
+                      {customer.tags?.length ? (
+                        customer.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="rounded-full bg-slate-100 px-3 py-1 text-sm"
+                          >
+                            {tag}
+                          </span>
+                        ))
+                      ) : (
+                        <span className="rounded-full bg-slate-100 px-3 py-1 text-sm">
+                          بدون تصنيف
                         </span>
-                      ))}
+                      )}
                     </div>
                   </div>
 
-                  <div className="grid gap-2 min-w-32">
-                    <button
-                      onClick={() => startEdit(customer)}
-                      className="rounded-xl bg-blue-600 px-4 py-2 text-white"
-                    >
-                      تعديل
-                    </button>
+                  <div className="rounded-2xl bg-slate-50 p-4">
+                    <p className="text-sm text-slate-500">إحصائيات العميل</p>
 
-                    <button
-                      onClick={() => deleteCustomer(customer.id)}
-                      className="rounded-xl bg-red-600 px-4 py-2 text-white"
-                    >
-                      حذف
-                    </button>
+                    <div className="mt-3 grid gap-2 text-sm">
+                      <p>الحملات: {stats.campaigns}</p>
+                      <p>النقرات: {stats.clicks}</p>
+                      <p>آخر تفاعل: {stats.lastInteraction}</p>
+                    </div>
+
+                    <div className="mt-4 grid gap-2">
+                      <button
+                        onClick={() => startEdit(customer)}
+                        className="rounded-xl bg-blue-600 px-4 py-2 text-white"
+                      >
+                        تعديل
+                      </button>
+
+                      <button
+                        onClick={() => deleteCustomer(customer.id)}
+                        className="rounded-xl bg-red-600 px-4 py-2 text-white"
+                      >
+                        حذف
+                      </button>
+                    </div>
                   </div>
                 </div>
               )}
@@ -422,6 +514,23 @@ export default function CustomersPage() {
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function StatCard({
+  title,
+  value,
+  color,
+}: {
+  title: string;
+  value: number;
+  color: string;
+}) {
+  return (
+    <div className="rounded-3xl bg-white p-6 shadow-sm border">
+      <p className="text-slate-500">{title}</p>
+      <h2 className={`mt-4 text-4xl font-bold ${color}`}>{value}</h2>
     </div>
   );
 }

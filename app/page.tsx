@@ -16,6 +16,11 @@ type Campaign = {
   created_at: string;
 };
 
+type DailyActivity = {
+  label: string;
+  count: number;
+};
+
 const statusLabels: Record<string, string> = {
   draft: "مسودة",
   scheduled: "مجدولة",
@@ -41,8 +46,11 @@ export default function DashboardPage() {
   const [latestFailedCampaign, setLatestFailedCampaign] =
     useState<Campaign | null>(null);
   const [topCampaign, setTopCampaign] = useState<Campaign | null>(null);
+  const [topCampaigns, setTopCampaigns] = useState<Campaign[]>([]);
   const [bestProduct, setBestProduct] = useState("غير متوفر");
   const [bestCustomer, setBestCustomer] = useState("غير متوفر");
+  const [lastUpdated, setLastUpdated] = useState("");
+  const [dailyActivity, setDailyActivity] = useState<DailyActivity[]>([]);
 
   async function loadDashboard() {
     const { count: products } = await supabase
@@ -121,6 +129,29 @@ export default function DashboardPage() {
       (a, b) => b[1] - a[1]
     )[0];
 
+    const today = new Date();
+    const activity: DailyActivity[] = [];
+
+    for (let i = 6; i >= 0; i--) {
+      const day = new Date(today);
+      day.setDate(today.getDate() - i);
+
+      const dayKey = day.toISOString().slice(0, 10);
+
+      const count = campaigns.filter((campaign) => {
+        const campaignDate = new Date(campaign.created_at)
+          .toISOString()
+          .slice(0, 10);
+
+        return campaignDate === dayKey;
+      }).length;
+
+      activity.push({
+        label: day.toLocaleDateString("ar-SA", { weekday: "short" }),
+        count,
+      });
+    }
+
     setProductsCount(products || 0);
     setCustomersCount(customers || 0);
     setCampaignsCount(activeCampaigns.length);
@@ -136,6 +167,7 @@ export default function DashboardPage() {
     setLatestCampaign(activeCampaigns[0] || null);
     setLatestFailedCampaign(failedCampaigns[0] || null);
     setTopCampaign(sortedByClicks[0] || null);
+    setTopCampaigns(sortedByClicks.slice(0, 5));
 
     setBestProduct(
       topProduct ? `${topProduct[0]} - ${topProduct[1]} نقرات` : "غير متوفر"
@@ -143,6 +175,15 @@ export default function DashboardPage() {
 
     setBestCustomer(
       topCustomer ? `${topCustomer[0]} - ${topCustomer[1]} نقرات` : "غير متوفر"
+    );
+
+    setDailyActivity(activity);
+
+    setLastUpdated(
+      new Date().toLocaleString("ar-SA", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      })
     );
   }
 
@@ -154,18 +195,30 @@ export default function DashboardPage() {
     <div>
       <div className="flex items-start justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold">لوحة التحكم الذكية</h1>
+          <h1 className="text-3xl font-bold">لوحة التحكم التنفيذية</h1>
           <p className="mt-2 text-slate-600">
-            متابعة النظام التسويقي بالكامل.
+            متابعة مختصرة لأداء النظام التسويقي بالكامل.
+          </p>
+          <p className="mt-2 text-sm text-slate-500">
+            آخر تحديث: {lastUpdated || "جارٍ التحديث..."}
           </p>
         </div>
 
-        <Link
-          href="/analytics"
-          className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white"
-        >
-          عرض التقارير
-        </Link>
+        <div className="flex gap-3">
+          <button
+            onClick={loadDashboard}
+            className="cursor-pointer rounded-2xl bg-slate-900 px-5 py-3 text-sm font-bold text-white hover:opacity-90 transition"
+          >
+            تحديث البيانات
+          </button>
+
+          <Link
+            href="/analytics"
+            className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white"
+          >
+            عرض التقارير
+          </Link>
+        </div>
       </div>
 
       <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-4">
@@ -232,6 +285,69 @@ export default function DashboardPage() {
           }
         />
       </div>
+
+      <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-2">
+        <Panel title="أفضل 5 حملات تفاعلًا">
+          <div className="grid gap-4">
+            {topCampaigns.length === 0 ? (
+              <p className="text-sm text-slate-500">لا توجد بيانات كافية</p>
+            ) : (
+              topCampaigns.map((campaign) => (
+                <div key={campaign.id} className="rounded-2xl border p-4">
+                  <p className="font-bold">
+                    {campaign.title || campaign.campaign_name || "حملة بدون اسم"}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    النقرات: {campaign.clicks || 0}
+                  </p>
+                  <p className="mt-1 text-sm text-slate-500">
+                    المنتج: {campaign.product_name || "غير محدد"}
+                  </p>
+                </div>
+              ))
+            )}
+          </div>
+        </Panel>
+
+        <Panel title="مخطط الحملات حسب الحالة">
+          <StatusBar label="مرسلة" value={sentCount} total={campaignsCount} />
+          <StatusBar label="مجدولة" value={scheduledCount} total={campaignsCount} />
+          <StatusBar label="مسودات" value={draftCount} total={campaignsCount} />
+          <StatusBar label="فاشلة" value={failedCount} total={campaignsCount} />
+          <StatusBar label="مؤرشفة" value={archivedCount} total={campaignsCount + archivedCount} />
+        </Panel>
+      </div>
+
+      <div className="mt-8">
+        <Panel title="نشاط آخر 7 أيام">
+          <div className="grid gap-4">
+            {dailyActivity.map((day) => {
+              const maxCount = Math.max(
+                ...dailyActivity.map((item) => item.count),
+                1
+              );
+
+              const width = Math.max((day.count / maxCount) * 100, 5);
+
+              return (
+                <div key={day.label}>
+                  <div className="mb-2 flex justify-between text-sm">
+                    <span>{day.label}</span>
+                    <span>{day.count} حملة</span>
+                  </div>
+
+                  <div className="h-4 rounded-full bg-slate-100">
+                    <div
+                      className="h-4 rounded-full bg-blue-600"
+                      style={{ width: `${width}%` }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </Panel>
+      </div>
     </div>
   );
 }
@@ -270,6 +386,49 @@ function InfoCard({
       {description ? (
         <p className="mt-2 text-sm text-slate-500">{description}</p>
       ) : null}
+    </div>
+  );
+}
+
+function Panel({
+  title,
+  children,
+}: {
+  title: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-3xl border bg-white p-6">
+      <h2 className="text-xl font-bold">{title}</h2>
+      <div className="mt-5">{children}</div>
+    </div>
+  );
+}
+
+function StatusBar({
+  label,
+  value,
+  total,
+}: {
+  label: string;
+  value: number;
+  total: number;
+}) {
+  const width = total > 0 ? Math.max((value / total) * 100, 5) : 5;
+
+  return (
+    <div className="mb-4">
+      <div className="mb-2 flex justify-between text-sm">
+        <span>{label}</span>
+        <span>{value}</span>
+      </div>
+
+      <div className="h-4 rounded-full bg-slate-100">
+        <div
+          className="h-4 rounded-full bg-emerald-600"
+          style={{ width: `${width}%` }}
+        />
+      </div>
     </div>
   );
 }
