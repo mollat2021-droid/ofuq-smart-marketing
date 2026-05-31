@@ -52,6 +52,8 @@ export default function AnalyticsPage() {
   const [latestFailedCampaign, setLatestFailedCampaign] =
     useState<Campaign | null>(null);
   const [lastUpdated, setLastUpdated] = useState("");
+  const [trendMessage, setTrendMessage] = useState("لا توجد بيانات كافية");
+  const [trendValue, setTrendValue] = useState(0);
 
   async function loadAnalytics() {
     const { data: campaigns, error } = await supabase
@@ -185,6 +187,55 @@ export default function AnalyticsPage() {
         : "غير متوفر"
     );
 
+    const now = new Date();
+    const last7Days = new Date(now);
+    last7Days.setDate(now.getDate() - 7);
+
+    const previous7Days = new Date(now);
+    previous7Days.setDate(now.getDate() - 14);
+
+    const recentCampaigns = typedCampaigns.filter((campaign) => {
+      const date = new Date(campaign.created_at);
+      return date >= last7Days;
+    });
+
+    const previousCampaigns = typedCampaigns.filter((campaign) => {
+      const date = new Date(campaign.created_at);
+      return date >= previous7Days && date < last7Days;
+    });
+
+    const recentClicks = recentCampaigns.reduce(
+      (sum, campaign) => sum + (campaign.clicks || 0),
+      0
+    );
+
+    const previousClicks = previousCampaigns.reduce(
+      (sum, campaign) => sum + (campaign.clicks || 0),
+      0
+    );
+
+    if (previousClicks === 0 && recentClicks === 0) {
+      setTrendMessage("لا توجد نقرات خلال آخر 14 يوم");
+      setTrendValue(0);
+    } else if (previousClicks === 0 && recentClicks > 0) {
+      setTrendMessage("الأداء بدأ بالتحسن خلال آخر 7 أيام");
+      setTrendValue(100);
+    } else {
+      const change = Math.round(
+        ((recentClicks - previousClicks) / previousClicks) * 100
+      );
+
+      setTrendValue(change);
+
+      if (change > 0) {
+        setTrendMessage(`النقرات ارتفعت بنسبة ${change}% خلال آخر 7 أيام`);
+      } else if (change < 0) {
+        setTrendMessage(`النقرات انخفضت بنسبة ${Math.abs(change)}% خلال آخر 7 أيام`);
+      } else {
+        setTrendMessage("الأداء مستقر خلال آخر 7 أيام");
+      }
+    }
+
     setLastUpdated(
       new Date().toLocaleString("ar-SA", {
         dateStyle: "medium",
@@ -220,6 +271,21 @@ export default function AnalyticsPage() {
           value={`${stats.successRate}%`}
           color="text-emerald-600"
         />
+      </div>
+
+      <div className="mt-10 rounded-3xl bg-white p-6 shadow-sm border">
+        <p className="text-slate-500">اتجاه الأداء آخر 7 أيام</p>
+        <h2
+          className={`mt-4 text-2xl font-bold ${
+            trendValue > 0
+              ? "text-emerald-600"
+              : trendValue < 0
+              ? "text-red-600"
+              : "text-slate-700"
+          }`}
+        >
+          {trendMessage}
+        </h2>
       </div>
 
       <div className="mt-10 grid gap-6 md:grid-cols-2">
