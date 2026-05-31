@@ -15,6 +15,17 @@ type Campaign = {
   scheduled_at: string | null;
 };
 
+type ClickTrack = {
+  id: string;
+  campaign_id: string | null;
+  customer_id: string | null;
+  customer_email: string | null;
+  product_name: string | null;
+  tracking_code: string | null;
+  clicked_at: string;
+  user_agent: string | null;
+};
+
 type RankingItem = {
   name: string;
   clicks: number;
@@ -42,8 +53,12 @@ export default function AnalyticsPage() {
     successRate: 0,
   });
 
-  const [topCampaigns, setTopCampaigns] = useState<Campaign[]>([]);
-  const [bestCampaign, setBestCampaign] = useState<Campaign | null>(null);
+  const [topCampaigns, setTopCampaigns] = useState<
+    (Campaign & { realClicks: number })[]
+  >([]);
+  const [bestCampaign, setBestCampaign] =
+    useState<(Campaign & { realClicks: number }) | null>(null);
+
   const [bestProduct, setBestProduct] = useState("غير متوفر");
   const [bestCustomer, setBestCustomer] = useState("غير متوفر");
   const [topProducts, setTopProducts] = useState<RankingItem[]>([]);
@@ -56,44 +71,36 @@ export default function AnalyticsPage() {
   const [trendValue, setTrendValue] = useState(0);
 
   async function loadAnalytics() {
-    const { data: campaigns, error } = await supabase
+    const { data: campaignsData, error: campaignsError } = await supabase
       .from("campaigns")
       .select("*")
       .order("created_at", { ascending: false });
 
-    if (error) {
-      console.log(error);
+    const { data: clicksData, error: clicksError } = await supabase
+      .from("click_tracking")
+      .select("*")
+      .order("clicked_at", { ascending: false });
+
+    if (campaignsError || clicksError) {
+      console.log(campaignsError || clicksError);
       return;
     }
 
-    if (!campaigns) return;
+    const campaigns = (campaignsData || []) as Campaign[];
+    const clicks = (clicksData || []) as ClickTrack[];
 
-    const typedCampaigns = campaigns as Campaign[];
+    const campaignMap = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
 
-    const campaignsCount = typedCampaigns.length;
+    const campaignsCount = campaigns.length;
+    const clicksCount = clicks.length;
 
-    const clicksCount = typedCampaigns.reduce(
-      (sum, campaign) => sum + (campaign.clicks || 0),
-      0
-    );
-
-    const sentCount = typedCampaigns.filter(
-      (campaign) => campaign.status === "sent"
-    ).length;
-
-    const scheduledCount = typedCampaigns.filter(
+    const sentCount = campaigns.filter((campaign) => campaign.status === "sent").length;
+    const scheduledCount = campaigns.filter(
       (campaign) => campaign.status === "scheduled"
     ).length;
-
-    const draftCount = typedCampaigns.filter(
-      (campaign) => campaign.status === "draft"
-    ).length;
-
-    const failedCount = typedCampaigns.filter(
-      (campaign) => campaign.status === "failed"
-    ).length;
-
-    const archivedCount = typedCampaigns.filter(
+    const draftCount = campaigns.filter((campaign) => campaign.status === "draft").length;
+    const failedCount = campaigns.filter((campaign) => campaign.status === "failed").length;
+    const archivedCount = campaigns.filter(
       (campaign) => campaign.archived === true
     ).length;
 
@@ -117,26 +124,42 @@ export default function AnalyticsPage() {
       successRate,
     });
 
-    const sortedByClicks = [...typedCampaigns].sort(
-      (a, b) => (b.clicks || 0) - (a.clicks || 0)
-    );
+    const campaignClicks: Record<string, number> = {};
 
-    setTopCampaigns(sortedByClicks.slice(0, 5));
-    setBestCampaign(sortedByClicks[0] || null);
-    setLatestCampaign(typedCampaigns[0] || null);
+    clicks.forEach((click) => {
+      if (!click.campaign_id) return;
+      campaignClicks[click.campaign_id] = (campaignClicks[click.campaign_id] || 0) + 1;
+    });
 
-    const failedCampaigns = typedCampaigns.filter(
+    const campaignsWithRealClicks = campaigns
+      .map((campaign) => ({
+        ...campaign,
+        realClicks: campaignClicks[campaign.id] || 0,
+      }))
+      .sort((a, b) => b.realClicks - a.realClicks);
+
+    setTopCampaigns(campaignsWithRealClicks.slice(0, 5));
+    setBestCampaign(campaignsWithRealClicks[0] || null);
+    setLatestCampaign(campaigns[0] || null);
+
+    const failedCampaigns = campaigns.filter(
       (campaign) => campaign.status === "failed"
     );
     setLatestFailedCampaign(failedCampaigns[0] || null);
 
     const productStats: Record<string, RankingItem> = {};
     const customerStats: Record<string, RankingItem> = {};
+    const productCampaigns: Record<string, Set<string>> = {};
+    const customerCampaigns: Record<string, Set<string>> = {};
 
-    typedCampaigns.forEach((campaign) => {
-      const clicks = campaign.clicks || 0;
-      const productName = campaign.product_name || "غير محدد";
-      const customerEmail = campaign.customer_email || "غير محدد";
+    clicks.forEach((click) => {
+      const campaign = click.campaign_id ? campaignMap.get(click.campaign_id) : null;
+
+      const productName =
+        click.product_name || campaign?.product_name || "غير محدد";
+
+      const customerEmail =
+        click.customer_email || campaign?.customer_email || "غير محدد";
 
       if (!productStats[productName]) {
         productStats[productName] = {
@@ -144,10 +167,11 @@ export default function AnalyticsPage() {
           clicks: 0,
           campaigns: 0,
         };
+        productCampaigns[productName] = new Set();
       }
 
-      productStats[productName].clicks += clicks;
-      productStats[productName].campaigns += 1;
+      productStats[productName].clicks += 1;
+      if (click.campaign_id) productCampaigns[productName].add(click.campaign_id);
 
       if (!customerStats[customerEmail]) {
         customerStats[customerEmail] = {
@@ -155,10 +179,19 @@ export default function AnalyticsPage() {
           clicks: 0,
           campaigns: 0,
         };
+        customerCampaigns[customerEmail] = new Set();
       }
 
-      customerStats[customerEmail].clicks += clicks;
-      customerStats[customerEmail].campaigns += 1;
+      customerStats[customerEmail].clicks += 1;
+      if (click.campaign_id) customerCampaigns[customerEmail].add(click.campaign_id);
+    });
+
+    Object.keys(productStats).forEach((productName) => {
+      productStats[productName].campaigns = productCampaigns[productName].size;
+    });
+
+    Object.keys(customerStats).forEach((customerEmail) => {
+      customerStats[customerEmail].campaigns = customerCampaigns[customerEmail].size;
     });
 
     const sortedProducts = Object.values(productStats).sort(
@@ -194,25 +227,15 @@ export default function AnalyticsPage() {
     const previous7Days = new Date(now);
     previous7Days.setDate(now.getDate() - 14);
 
-    const recentCampaigns = typedCampaigns.filter((campaign) => {
-      const date = new Date(campaign.created_at);
+    const recentClicks = clicks.filter((click) => {
+      const date = new Date(click.clicked_at);
       return date >= last7Days;
-    });
+    }).length;
 
-    const previousCampaigns = typedCampaigns.filter((campaign) => {
-      const date = new Date(campaign.created_at);
+    const previousClicks = clicks.filter((click) => {
+      const date = new Date(click.clicked_at);
       return date >= previous7Days && date < last7Days;
-    });
-
-    const recentClicks = recentCampaigns.reduce(
-      (sum, campaign) => sum + (campaign.clicks || 0),
-      0
-    );
-
-    const previousClicks = previousCampaigns.reduce(
-      (sum, campaign) => sum + (campaign.clicks || 0),
-      0
-    );
+    }).length;
 
     if (previousClicks === 0 && recentClicks === 0) {
       setTrendMessage("لا توجد نقرات خلال آخر 14 يوم");
@@ -230,7 +253,9 @@ export default function AnalyticsPage() {
       if (change > 0) {
         setTrendMessage(`النقرات ارتفعت بنسبة ${change}% خلال آخر 7 أيام`);
       } else if (change < 0) {
-        setTrendMessage(`النقرات انخفضت بنسبة ${Math.abs(change)}% خلال آخر 7 أيام`);
+        setTrendMessage(
+          `النقرات انخفضت بنسبة ${Math.abs(change)}% خلال آخر 7 أيام`
+        );
       } else {
         setTrendMessage("الأداء مستقر خلال آخر 7 أيام");
       }
@@ -259,18 +284,14 @@ export default function AnalyticsPage() {
 
       <div className="mt-8 grid gap-6 md:grid-cols-4">
         <Card title="الحملات" value={stats.campaigns} color="text-blue-600" />
-        <Card title="النقرات" value={stats.clicks} color="text-green-600" />
+        <Card title="النقرات الحقيقية" value={stats.clicks} color="text-green-600" />
         <Card title="المرسلة" value={stats.sent} color="text-purple-600" />
         <Card title="المجدولة" value={stats.scheduled} color="text-yellow-600" />
         <Card title="المسودات" value={stats.draft} color="text-slate-600" />
         <Card title="الفاشلة" value={stats.failed} color="text-red-600" />
         <Card title="المؤرشفة" value={stats.archived} color="text-gray-600" />
         <Card title="CTR" value={`${stats.ctr}%`} color="text-orange-600" />
-        <Card
-          title="معدل النجاح"
-          value={`${stats.successRate}%`}
-          color="text-emerald-600"
-        />
+        <Card title="معدل النجاح" value={`${stats.successRate}%`} color="text-emerald-600" />
       </div>
 
       <div className="mt-10 rounded-3xl bg-white p-6 shadow-sm border">
@@ -295,7 +316,7 @@ export default function AnalyticsPage() {
           title="أفضل حملة"
           value={bestCampaign?.title || "غير متوفر"}
           description={
-            bestCampaign ? `عدد النقرات: ${bestCampaign.clicks || 0}` : ""
+            bestCampaign ? `عدد النقرات الحقيقية: ${bestCampaign.realClicks}` : ""
           }
         />
 
@@ -327,25 +348,22 @@ export default function AnalyticsPage() {
       </div>
 
       <div className="mt-10 rounded-3xl bg-white p-6 shadow-sm border">
-        <h2 className="text-2xl font-bold">رسم بياني للنقرات</h2>
+        <h2 className="text-2xl font-bold">رسم بياني للنقرات الحقيقية</h2>
 
         <div className="mt-6 grid gap-4">
           {topCampaigns.map((campaign) => {
             const maxClicks = Math.max(
-              ...topCampaigns.map((item) => item.clicks || 0),
+              ...topCampaigns.map((item) => item.realClicks),
               1
             );
 
-            const width = Math.max(
-              ((campaign.clicks || 0) / maxClicks) * 100,
-              5
-            );
+            const width = Math.max((campaign.realClicks / maxClicks) * 100, 5);
 
             return (
               <div key={campaign.id}>
                 <div className="mb-2 flex justify-between text-sm">
                   <span>{campaign.title || "حملة بدون اسم"}</span>
-                  <span>{campaign.clicks || 0} نقرات</span>
+                  <span>{campaign.realClicks} نقرات</span>
                 </div>
 
                 <div className="h-4 rounded-full bg-slate-100">
@@ -382,7 +400,7 @@ export default function AnalyticsPage() {
               </p>
 
               <p className="mt-1 text-sm text-slate-500">
-                النقرات: {campaign.clicks || 0}
+                النقرات الحقيقية: {campaign.realClicks}
               </p>
 
               <p className="mt-1 text-sm text-slate-500">
@@ -453,10 +471,7 @@ function RankingCard({
           <p className="text-sm text-slate-500">لا توجد بيانات كافية</p>
         ) : (
           items.map((item, index) => (
-            <div
-              key={`${item.name}-${index}`}
-              className="rounded-2xl border p-4"
-            >
+            <div key={`${item.name}-${index}`} className="rounded-2xl border p-4">
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <h3 className="font-bold">{item.name}</h3>
