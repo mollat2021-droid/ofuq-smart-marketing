@@ -16,6 +16,18 @@ type Campaign = {
   created_at: string;
 };
 
+type ClickTrack = {
+  id: string;
+  campaign_id: string | null;
+  customer_email: string | null;
+  product_name: string | null;
+  clicked_at: string;
+};
+
+type CampaignWithRealClicks = Campaign & {
+  realClicks: number;
+};
+
 type DailyActivity = {
   label: string;
   count: number;
@@ -45,8 +57,10 @@ export default function DashboardPage() {
   const [latestCampaign, setLatestCampaign] = useState<Campaign | null>(null);
   const [latestFailedCampaign, setLatestFailedCampaign] =
     useState<Campaign | null>(null);
-  const [topCampaign, setTopCampaign] = useState<Campaign | null>(null);
-  const [topCampaigns, setTopCampaigns] = useState<Campaign[]>([]);
+  const [topCampaign, setTopCampaign] =
+    useState<CampaignWithRealClicks | null>(null);
+  const [topCampaigns, setTopCampaigns] = useState<CampaignWithRealClicks[]>([]);
+
   const [bestProduct, setBestProduct] = useState("غير متوفر");
   const [bestCustomer, setBestCustomer] = useState("غير متوفر");
   const [lastUpdated, setLastUpdated] = useState("");
@@ -66,7 +80,17 @@ export default function DashboardPage() {
       .select("*")
       .order("created_at", { ascending: false });
 
+    const { data: clicksData } = await supabase
+      .from("click_tracking")
+      .select("*")
+      .order("clicked_at", { ascending: false });
+
     const campaigns: Campaign[] = campaignsData || [];
+    const clicks: ClickTrack[] = clicksData || [];
+
+    const campaignMap = new Map(
+      campaigns.map((campaign) => [campaign.id, campaign])
+    );
 
     const activeCampaigns = campaigns.filter(
       (campaign) => campaign.archived !== true
@@ -74,11 +98,6 @@ export default function DashboardPage() {
 
     const archivedCampaigns = campaigns.filter(
       (campaign) => campaign.archived === true
-    );
-
-    const totalClicks = activeCampaigns.reduce(
-      (sum, campaign) => sum + (campaign.clicks || 0),
-      0
     );
 
     const sent = activeCampaigns.filter(
@@ -100,8 +119,21 @@ export default function DashboardPage() {
     const rate =
       sent + failed > 0 ? Math.round((sent / (sent + failed)) * 100) : 0;
 
-    const sortedByClicks = [...activeCampaigns].sort(
-      (a, b) => (b.clicks || 0) - (a.clicks || 0)
+    const campaignClicks: Record<string, number> = {};
+
+    clicks.forEach((click) => {
+      if (!click.campaign_id) return;
+      campaignClicks[click.campaign_id] =
+        (campaignClicks[click.campaign_id] || 0) + 1;
+    });
+
+    const activeCampaignsWithRealClicks = activeCampaigns.map((campaign) => ({
+      ...campaign,
+      realClicks: campaignClicks[campaign.id] || 0,
+    }));
+
+    const sortedByRealClicks = [...activeCampaignsWithRealClicks].sort(
+      (a, b) => b.realClicks - a.realClicks
     );
 
     const failedCampaigns = activeCampaigns.filter(
@@ -111,14 +143,19 @@ export default function DashboardPage() {
     const productClicks: Record<string, number> = {};
     const customerClicks: Record<string, number> = {};
 
-    activeCampaigns.forEach((campaign) => {
-      const productName = campaign.product_name || "غير محدد";
-      const customerEmail = campaign.customer_email || "غير محدد";
-      const clicks = campaign.clicks || 0;
+    clicks.forEach((click) => {
+      const campaign = click.campaign_id
+        ? campaignMap.get(click.campaign_id)
+        : null;
 
-      productClicks[productName] = (productClicks[productName] || 0) + clicks;
-      customerClicks[customerEmail] =
-        (customerClicks[customerEmail] || 0) + clicks;
+      const productName =
+        click.product_name || campaign?.product_name || "غير محدد";
+
+      const customerEmail =
+        click.customer_email || campaign?.customer_email || "غير محدد";
+
+      productClicks[productName] = (productClicks[productName] || 0) + 1;
+      customerClicks[customerEmail] = (customerClicks[customerEmail] || 0) + 1;
     });
 
     const topProduct = Object.entries(productClicks).sort(
@@ -138,12 +175,9 @@ export default function DashboardPage() {
 
       const dayKey = day.toISOString().slice(0, 10);
 
-      const count = campaigns.filter((campaign) => {
-        const campaignDate = new Date(campaign.created_at)
-          .toISOString()
-          .slice(0, 10);
-
-        return campaignDate === dayKey;
+      const count = clicks.filter((click) => {
+        const clickDate = new Date(click.clicked_at).toISOString().slice(0, 10);
+        return clickDate === dayKey;
       }).length;
 
       activity.push({
@@ -155,7 +189,7 @@ export default function DashboardPage() {
     setProductsCount(products || 0);
     setCustomersCount(customers || 0);
     setCampaignsCount(activeCampaigns.length);
-    setClicksCount(totalClicks);
+    setClicksCount(clicks.length);
 
     setDraftCount(drafts);
     setScheduledCount(scheduled);
@@ -166,8 +200,8 @@ export default function DashboardPage() {
 
     setLatestCampaign(activeCampaigns[0] || null);
     setLatestFailedCampaign(failedCampaigns[0] || null);
-    setTopCampaign(sortedByClicks[0] || null);
-    setTopCampaigns(sortedByClicks.slice(0, 5));
+    setTopCampaign(sortedByRealClicks[0] || null);
+    setTopCampaigns(sortedByRealClicks.slice(0, 5));
 
     setBestProduct(
       topProduct ? `${topProduct[0]} - ${topProduct[1]} نقرات` : "غير متوفر"
@@ -214,7 +248,7 @@ export default function DashboardPage() {
 
           <Link
             href="/analytics"
-            className="rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white"
+            className="cursor-pointer rounded-2xl bg-blue-600 px-5 py-3 text-sm font-bold text-white hover:opacity-90 transition"
           >
             عرض التقارير
           </Link>
@@ -225,7 +259,7 @@ export default function DashboardPage() {
         <StatCard title="المنتجات" value={productsCount} color="text-blue-600" />
         <StatCard title="العملاء" value={customersCount} color="text-green-600" />
         <StatCard title="الحملات النشطة" value={campaignsCount} color="text-purple-600" />
-        <StatCard title="النقرات" value={clicksCount} color="text-orange-600" />
+        <StatCard title="النقرات الحقيقية" value={clicksCount} color="text-orange-600" />
       </div>
 
       <div className="mt-8 grid grid-cols-1 gap-6 md:grid-cols-6">
@@ -246,7 +280,7 @@ export default function DashboardPage() {
           value={topCampaign?.title || topCampaign?.campaign_name || "لا توجد بيانات"}
           description={
             topCampaign
-              ? `النقرات: ${topCampaign.clicks || 0} | المنتج: ${
+              ? `النقرات الحقيقية: ${topCampaign.realClicks} | المنتج: ${
                   topCampaign.product_name || "غير محدد"
                 }`
               : ""
@@ -298,7 +332,7 @@ export default function DashboardPage() {
                     {campaign.title || campaign.campaign_name || "حملة بدون اسم"}
                   </p>
                   <p className="mt-1 text-sm text-slate-500">
-                    النقرات: {campaign.clicks || 0}
+                    النقرات الحقيقية: {campaign.realClicks}
                   </p>
                   <p className="mt-1 text-sm text-slate-500">
                     المنتج: {campaign.product_name || "غير محدد"}
@@ -319,7 +353,7 @@ export default function DashboardPage() {
       </div>
 
       <div className="mt-8">
-        <Panel title="نشاط آخر 7 أيام">
+        <Panel title="نشاط النقرات آخر 7 أيام">
           <div className="grid gap-4">
             {dailyActivity.map((day) => {
               const maxCount = Math.max(
@@ -333,7 +367,7 @@ export default function DashboardPage() {
                 <div key={day.label}>
                   <div className="mb-2 flex justify-between text-sm">
                     <span>{day.label}</span>
-                    <span>{day.count} حملة</span>
+                    <span>{day.count} نقرة</span>
                   </div>
 
                   <div className="h-4 rounded-full bg-slate-100">

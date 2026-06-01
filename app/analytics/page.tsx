@@ -2,6 +2,14 @@
 
 import { useEffect, useState } from "react";
 import { supabase } from "@/lib/supabase";
+import {
+  PieChart,
+  Pie,
+  Cell,
+  Tooltip,
+  ResponsiveContainer,
+  Legend,
+} from "recharts";
 
 type Campaign = {
   id: string;
@@ -32,6 +40,11 @@ type RankingItem = {
   campaigns: number;
 };
 
+type ChartItem = {
+  name: string;
+  value: number;
+};
+
 const statusLabels: Record<string, string> = {
   draft: "مسودة",
   scheduled: "مجدولة",
@@ -39,6 +52,15 @@ const statusLabels: Record<string, string> = {
   failed: "فاشلة",
   sending: "قيد الإرسال",
 };
+
+const chartColors = [
+  "#2563eb",
+  "#16a34a",
+  "#f97316",
+  "#9333ea",
+  "#dc2626",
+  "#0891b2",
+];
 
 export default function AnalyticsPage() {
   const [stats, setStats] = useState({
@@ -66,6 +88,12 @@ export default function AnalyticsPage() {
   const [latestCampaign, setLatestCampaign] = useState<Campaign | null>(null);
   const [latestFailedCampaign, setLatestFailedCampaign] =
     useState<Campaign | null>(null);
+
+  const [campaignChart, setCampaignChart] = useState<ChartItem[]>([]);
+  const [productChart, setProductChart] = useState<ChartItem[]>([]);
+  const [customerChart, setCustomerChart] = useState<ChartItem[]>([]);
+  const [statusChart, setStatusChart] = useState<ChartItem[]>([]);
+
   const [lastUpdated, setLastUpdated] = useState("");
   const [trendMessage, setTrendMessage] = useState("لا توجد بيانات كافية");
   const [trendValue, setTrendValue] = useState(0);
@@ -89,17 +117,29 @@ export default function AnalyticsPage() {
     const campaigns = (campaignsData || []) as Campaign[];
     const clicks = (clicksData || []) as ClickTrack[];
 
-    const campaignMap = new Map(campaigns.map((campaign) => [campaign.id, campaign]));
+    const campaignMap = new Map(
+      campaigns.map((campaign) => [campaign.id, campaign])
+    );
 
     const campaignsCount = campaigns.length;
     const clicksCount = clicks.length;
 
-    const sentCount = campaigns.filter((campaign) => campaign.status === "sent").length;
+    const sentCount = campaigns.filter(
+      (campaign) => campaign.status === "sent"
+    ).length;
+
     const scheduledCount = campaigns.filter(
       (campaign) => campaign.status === "scheduled"
     ).length;
-    const draftCount = campaigns.filter((campaign) => campaign.status === "draft").length;
-    const failedCount = campaigns.filter((campaign) => campaign.status === "failed").length;
+
+    const draftCount = campaigns.filter(
+      (campaign) => campaign.status === "draft"
+    ).length;
+
+    const failedCount = campaigns.filter(
+      (campaign) => campaign.status === "failed"
+    ).length;
+
     const archivedCount = campaigns.filter(
       (campaign) => campaign.archived === true
     ).length;
@@ -128,7 +168,9 @@ export default function AnalyticsPage() {
 
     clicks.forEach((click) => {
       if (!click.campaign_id) return;
-      campaignClicks[click.campaign_id] = (campaignClicks[click.campaign_id] || 0) + 1;
+
+      campaignClicks[click.campaign_id] =
+        (campaignClicks[click.campaign_id] || 0) + 1;
     });
 
     const campaignsWithRealClicks = campaigns
@@ -145,6 +187,7 @@ export default function AnalyticsPage() {
     const failedCampaigns = campaigns.filter(
       (campaign) => campaign.status === "failed"
     );
+
     setLatestFailedCampaign(failedCampaigns[0] || null);
 
     const productStats: Record<string, RankingItem> = {};
@@ -153,7 +196,9 @@ export default function AnalyticsPage() {
     const customerCampaigns: Record<string, Set<string>> = {};
 
     clicks.forEach((click) => {
-      const campaign = click.campaign_id ? campaignMap.get(click.campaign_id) : null;
+      const campaign = click.campaign_id
+        ? campaignMap.get(click.campaign_id)
+        : null;
 
       const productName =
         click.product_name || campaign?.product_name || "غير محدد";
@@ -171,7 +216,9 @@ export default function AnalyticsPage() {
       }
 
       productStats[productName].clicks += 1;
-      if (click.campaign_id) productCampaigns[productName].add(click.campaign_id);
+      if (click.campaign_id) {
+        productCampaigns[productName].add(click.campaign_id);
+      }
 
       if (!customerStats[customerEmail]) {
         customerStats[customerEmail] = {
@@ -183,7 +230,9 @@ export default function AnalyticsPage() {
       }
 
       customerStats[customerEmail].clicks += 1;
-      if (click.campaign_id) customerCampaigns[customerEmail].add(click.campaign_id);
+      if (click.campaign_id) {
+        customerCampaigns[customerEmail].add(click.campaign_id);
+      }
     });
 
     Object.keys(productStats).forEach((productName) => {
@@ -191,7 +240,8 @@ export default function AnalyticsPage() {
     });
 
     Object.keys(customerStats).forEach((customerEmail) => {
-      customerStats[customerEmail].campaigns = customerCampaigns[customerEmail].size;
+      customerStats[customerEmail].campaigns =
+        customerCampaigns[customerEmail].size;
     });
 
     const sortedProducts = Object.values(productStats).sort(
@@ -219,6 +269,38 @@ export default function AnalyticsPage() {
         ? `${topCustomer.name} - ${topCustomer.clicks} نقرات`
         : "غير متوفر"
     );
+
+    setCampaignChart(
+      campaignsWithRealClicks
+        .filter((campaign) => campaign.realClicks > 0)
+        .slice(0, 5)
+        .map((campaign) => ({
+          name: campaign.title || "حملة بدون اسم",
+          value: campaign.realClicks,
+        }))
+    );
+
+    setProductChart(
+      sortedProducts.slice(0, 5).map((product) => ({
+        name: product.name,
+        value: product.clicks,
+      }))
+    );
+
+    setCustomerChart(
+      sortedCustomers.slice(0, 5).map((customer) => ({
+        name: customer.name,
+        value: customer.clicks,
+      }))
+    );
+
+    setStatusChart([
+      { name: "مرسلة", value: sentCount },
+      { name: "مجدولة", value: scheduledCount },
+      { name: "مسودة", value: draftCount },
+      { name: "فاشلة", value: failedCount },
+      { name: "مؤرشفة", value: archivedCount },
+    ]);
 
     const now = new Date();
     const last7Days = new Date(now);
@@ -277,6 +359,7 @@ export default function AnalyticsPage() {
     <div>
       <div>
         <h1 className="text-3xl font-bold">التقارير الذكية</h1>
+
         <p className="mt-2 text-sm text-slate-500">
           آخر تحديث: {lastUpdated || "جارٍ التحديث..."}
         </p>
@@ -284,18 +367,31 @@ export default function AnalyticsPage() {
 
       <div className="mt-8 grid gap-6 md:grid-cols-4">
         <Card title="الحملات" value={stats.campaigns} color="text-blue-600" />
-        <Card title="النقرات الحقيقية" value={stats.clicks} color="text-green-600" />
+        <Card
+          title="النقرات الحقيقية"
+          value={stats.clicks}
+          color="text-green-600"
+        />
         <Card title="المرسلة" value={stats.sent} color="text-purple-600" />
-        <Card title="المجدولة" value={stats.scheduled} color="text-yellow-600" />
+        <Card
+          title="المجدولة"
+          value={stats.scheduled}
+          color="text-yellow-600"
+        />
         <Card title="المسودات" value={stats.draft} color="text-slate-600" />
         <Card title="الفاشلة" value={stats.failed} color="text-red-600" />
         <Card title="المؤرشفة" value={stats.archived} color="text-gray-600" />
         <Card title="CTR" value={`${stats.ctr}%`} color="text-orange-600" />
-        <Card title="معدل النجاح" value={`${stats.successRate}%`} color="text-emerald-600" />
+        <Card
+          title="معدل النجاح"
+          value={`${stats.successRate}%`}
+          color="text-emerald-600"
+        />
       </div>
 
       <div className="mt-10 rounded-3xl bg-white p-6 shadow-sm border">
         <p className="text-slate-500">اتجاه الأداء آخر 7 أيام</p>
+
         <h2
           className={`mt-4 text-2xl font-bold ${
             trendValue > 0
@@ -316,7 +412,9 @@ export default function AnalyticsPage() {
           title="أفضل حملة"
           value={bestCampaign?.title || "غير متوفر"}
           description={
-            bestCampaign ? `عدد النقرات الحقيقية: ${bestCampaign.realClicks}` : ""
+            bestCampaign
+              ? `عدد النقرات الحقيقية: ${bestCampaign.realClicks}`
+              : ""
           }
         />
 
@@ -347,35 +445,11 @@ export default function AnalyticsPage() {
         />
       </div>
 
-      <div className="mt-10 rounded-3xl bg-white p-6 shadow-sm border">
-        <h2 className="text-2xl font-bold">رسم بياني للنقرات الحقيقية</h2>
-
-        <div className="mt-6 grid gap-4">
-          {topCampaigns.map((campaign) => {
-            const maxClicks = Math.max(
-              ...topCampaigns.map((item) => item.realClicks),
-              1
-            );
-
-            const width = Math.max((campaign.realClicks / maxClicks) * 100, 5);
-
-            return (
-              <div key={campaign.id}>
-                <div className="mb-2 flex justify-between text-sm">
-                  <span>{campaign.title || "حملة بدون اسم"}</span>
-                  <span>{campaign.realClicks} نقرات</span>
-                </div>
-
-                <div className="h-4 rounded-full bg-slate-100">
-                  <div
-                    className="h-4 rounded-full bg-blue-600"
-                    style={{ width: `${width}%` }}
-                  />
-                </div>
-              </div>
-            );
-          })}
-        </div>
+      <div className="mt-10 grid gap-6 md:grid-cols-2">
+        <PiePanel title="أفضل 5 حملات بالنقرات" data={campaignChart} />
+        <PiePanel title="توزيع حالات الحملات" data={statusChart} />
+        <PiePanel title="أفضل المنتجات بالنقرات" data={productChart} />
+        <PiePanel title="أفضل العملاء تفاعلًا" data={customerChart} />
       </div>
 
       <div className="mt-10 grid gap-6 md:grid-cols-2">
@@ -455,6 +529,44 @@ function InfoCard({
   );
 }
 
+function PiePanel({ title, data }: { title: string; data: ChartItem[] }) {
+  return (
+    <div className="rounded-3xl bg-white p-6 shadow-sm border">
+      <h2 className="text-2xl font-bold">{title}</h2>
+
+      {data.length === 0 ? (
+        <p className="mt-6 text-sm text-slate-500">لا توجد بيانات كافية</p>
+      ) : (
+        <div className="mt-6 h-80">
+          <ResponsiveContainer width="100%" height="100%">
+            <PieChart>
+              <Pie
+                data={data}
+                dataKey="value"
+                nameKey="name"
+                innerRadius={65}
+                outerRadius={105}
+                paddingAngle={3}
+                label
+              >
+                {data.map((_, index) => (
+                  <Cell
+                    key={`cell-${index}`}
+                    fill={chartColors[index % chartColors.length]}
+                  />
+                ))}
+              </Pie>
+
+              <Tooltip />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function RankingCard({
   title,
   items,
@@ -471,10 +583,14 @@ function RankingCard({
           <p className="text-sm text-slate-500">لا توجد بيانات كافية</p>
         ) : (
           items.map((item, index) => (
-            <div key={`${item.name}-${index}`} className="rounded-2xl border p-4">
+            <div
+              key={`${item.name}-${index}`}
+              className="rounded-2xl border p-4"
+            >
               <div className="flex items-center justify-between gap-4">
                 <div>
                   <h3 className="font-bold">{item.name}</h3>
+
                   <p className="mt-1 text-sm text-slate-500">
                     عدد الحملات: {item.campaigns}
                   </p>
