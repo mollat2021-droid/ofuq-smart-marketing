@@ -187,15 +187,15 @@ export async function GET(req: Request) {
     const content = campaign.description || "";
     const productName = campaign.product_name || "عرض جديد";
 
-    let emailResult = {
-      success: false,
-      error: "No customer email",
-    };
+    let emailResult: { success: boolean; error: string | null } = {
+  success: false,
+  error: "No customer email",
+};
 
-    let whatsappResult = {
-      success: false,
-      error: "No customer whatsapp",
-    };
+let whatsappResult: { success: boolean; error: string | null } = {
+  success: false,
+  error: "No customer whatsapp",
+};
 
     if (campaign.customer_email) {
       emailResult = await sendEmail({
