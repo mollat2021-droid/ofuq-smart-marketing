@@ -45,12 +45,32 @@ type ChartItem = {
   value: number;
 };
 
+type CampaignPerformance = Campaign & {
+  realClicks: number;
+  ctr: number;
+};
+
+type CustomerEngagement = {
+  name: string;
+  clicks: number;
+  campaigns: number;
+  engagementRate: number;
+};
+
 const statusLabels: Record<string, string> = {
-  draft: "مسودة",
-  scheduled: "مجدولة",
-  sent: "مرسلة",
-  failed: "فاشلة",
-  sending: "قيد الإرسال",
+  draft: "Draft",
+  scheduled: "Scheduled",
+  sent: "Sent",
+  failed: "Failed",
+  sending: "Sending",
+};
+
+const statusDotColors: Record<string, string> = {
+  draft: "⚪",
+  scheduled: "🟡",
+  sent: "🟢",
+  failed: "🔴",
+  sending: "🔵",
 };
 
 const chartColors = [
@@ -61,6 +81,19 @@ const chartColors = [
   "#dc2626",
   "#0891b2",
 ];
+
+function safePercent(value: number, total: number) {
+  if (!total || total <= 0) return 0;
+  return Number(((value / total) * 100).toFixed(1));
+}
+
+function formatStatus(status: string | null) {
+  const key = status || "";
+  const label = statusLabels[key] || status || "غير محدد";
+  const dot = statusDotColors[key] || "⚪";
+
+  return `${dot} ${label}`;
+}
 
 export default function AnalyticsPage() {
   const [stats, setStats] = useState({
@@ -73,18 +106,30 @@ export default function AnalyticsPage() {
     archived: 0,
     ctr: 0,
     successRate: 0,
+    avgClicksPerCampaign: 0,
   });
 
-  const [topCampaigns, setTopCampaigns] = useState<
-    (Campaign & { realClicks: number })[]
-  >([]);
+  const [topCampaigns, setTopCampaigns] = useState<CampaignPerformance[]>([]);
+  const [ctrLeaderboard, setCtrLeaderboard] = useState<CampaignPerformance[]>(
+    []
+  );
+
   const [bestCampaign, setBestCampaign] =
-    useState<(Campaign & { realClicks: number }) | null>(null);
+    useState<CampaignPerformance | null>(null);
+
+  const [bestProductCard, setBestProductCard] =
+    useState<RankingItem | null>(null);
+  const [bestCustomerCard, setBestCustomerCard] =
+    useState<CustomerEngagement | null>(null);
 
   const [bestProduct, setBestProduct] = useState("غير متوفر");
   const [bestCustomer, setBestCustomer] = useState("غير متوفر");
   const [topProducts, setTopProducts] = useState<RankingItem[]>([]);
   const [topCustomers, setTopCustomers] = useState<RankingItem[]>([]);
+  const [customerEngagement, setCustomerEngagement] = useState<
+    CustomerEngagement[]
+  >([]);
+
   const [latestCampaign, setLatestCampaign] = useState<Campaign | null>(null);
   const [latestFailedCampaign, setLatestFailedCampaign] =
     useState<Campaign | null>(null);
@@ -144,13 +189,15 @@ export default function AnalyticsPage() {
       (campaign) => campaign.archived === true
     ).length;
 
-    const ctr =
-      campaignsCount > 0 ? Math.round((clicksCount / campaignsCount) * 100) : 0;
+    const ctr = safePercent(clicksCount, campaignsCount);
 
     const successRate =
       sentCount + failedCount > 0
-        ? Math.round((sentCount / (sentCount + failedCount)) * 100)
+        ? safePercent(sentCount, sentCount + failedCount)
         : 0;
+
+    const avgClicksPerCampaign =
+      campaignsCount > 0 ? Number((clicksCount / campaignsCount).toFixed(1)) : 0;
 
     setStats({
       campaigns: campaignsCount,
@@ -162,6 +209,7 @@ export default function AnalyticsPage() {
       archived: archivedCount,
       ctr,
       successRate,
+      avgClicksPerCampaign,
     });
 
     const campaignClicks: Record<string, number> = {};
@@ -173,14 +221,21 @@ export default function AnalyticsPage() {
         (campaignClicks[click.campaign_id] || 0) + 1;
     });
 
-    const campaignsWithRealClicks = campaigns
+    const campaignsWithRealClicks: CampaignPerformance[] = campaigns
       .map((campaign) => ({
         ...campaign,
         realClicks: campaignClicks[campaign.id] || 0,
+        ctr: safePercent(campaignClicks[campaign.id] || 0, clicksCount),
       }))
       .sort((a, b) => b.realClicks - a.realClicks);
 
+    const campaignsByCtr = [...campaignsWithRealClicks].sort((a, b) => {
+      if (b.ctr !== a.ctr) return b.ctr - a.ctr;
+      return b.realClicks - a.realClicks;
+    });
+
     setTopCampaigns(campaignsWithRealClicks.slice(0, 5));
+    setCtrLeaderboard(campaignsByCtr.slice(0, 10));
     setBestCampaign(campaignsWithRealClicks[0] || null);
     setLatestCampaign(campaigns[0] || null);
 
@@ -244,19 +299,35 @@ export default function AnalyticsPage() {
         customerCampaigns[customerEmail].size;
     });
 
-    const sortedProducts = Object.values(productStats).sort(
-      (a, b) => b.clicks - a.clicks
-    );
+    const sortedProducts = Object.values(productStats).sort((a, b) => {
+      if (b.clicks !== a.clicks) return b.clicks - a.clicks;
+      return b.campaigns - a.campaigns;
+    });
 
-    const sortedCustomers = Object.values(customerStats).sort(
-      (a, b) => b.clicks - a.clicks
-    );
+    const sortedCustomers = Object.values(customerStats).sort((a, b) => {
+      if (b.clicks !== a.clicks) return b.clicks - a.clicks;
+      return b.campaigns - a.campaigns;
+    });
+
+    const sortedCustomerEngagement: CustomerEngagement[] = sortedCustomers
+      .map((customer) => ({
+        ...customer,
+        engagementRate: safePercent(customer.clicks, customer.campaigns || 1),
+      }))
+      .sort((a, b) => {
+        if (b.clicks !== a.clicks) return b.clicks - a.clicks;
+        return b.engagementRate - a.engagementRate;
+      });
 
     setTopProducts(sortedProducts.slice(0, 5));
     setTopCustomers(sortedCustomers.slice(0, 5));
+    setCustomerEngagement(sortedCustomerEngagement.slice(0, 10));
 
-    const topProduct = sortedProducts[0];
-    const topCustomer = sortedCustomers[0];
+    const topProduct = sortedProducts[0] || null;
+    const topCustomer = sortedCustomerEngagement[0] || null;
+
+    setBestProductCard(topProduct);
+    setBestCustomerCard(topCustomer);
 
     setBestProduct(
       topProduct
@@ -295,11 +366,11 @@ export default function AnalyticsPage() {
     );
 
     setStatusChart([
-      { name: "مرسلة", value: sentCount },
-      { name: "مجدولة", value: scheduledCount },
-      { name: "مسودة", value: draftCount },
-      { name: "فاشلة", value: failedCount },
-      { name: "مؤرشفة", value: archivedCount },
+      { name: "Sent", value: sentCount },
+      { name: "Scheduled", value: scheduledCount },
+      { name: "Draft", value: draftCount },
+      { name: "Failed", value: failedCount },
+      { name: "Archived", value: archivedCount },
     ]);
 
     const now = new Date();
@@ -363,6 +434,10 @@ export default function AnalyticsPage() {
         <p className="mt-2 text-sm text-slate-500">
           آخر تحديث: {lastUpdated || "جارٍ التحديث..."}
         </p>
+
+        <p className="mt-1 text-sm text-slate-500">
+          Analytics based on real click tracking data.
+        </p>
       </div>
 
       <div className="mt-8 grid gap-6 md:grid-cols-4">
@@ -381,11 +456,54 @@ export default function AnalyticsPage() {
         <Card title="المسودات" value={stats.draft} color="text-slate-600" />
         <Card title="الفاشلة" value={stats.failed} color="text-red-600" />
         <Card title="المؤرشفة" value={stats.archived} color="text-gray-600" />
-        <Card title="CTR" value={`${stats.ctr}%`} color="text-orange-600" />
+        <Card
+          title="معدل النقر (CTR)"
+          value={`${stats.ctr}%`}
+          color="text-orange-600"
+        />
         <Card
           title="معدل النجاح"
           value={`${stats.successRate}%`}
           color="text-emerald-600"
+        />
+        <Card
+          title="متوسط النقر لكل حملة"
+          value={stats.avgClicksPerCampaign}
+          color="text-cyan-600"
+        />
+      </div>
+
+      <div className="mt-10 grid gap-6 lg:grid-cols-3">
+        <PerformanceCard
+          icon="🏆"
+          title="أفضل حملة"
+          value={bestCampaign?.title || "غير متوفر"}
+          lines={[
+            `${bestCampaign?.realClicks || 0} Clicks`,
+            `📈 معدل النقر (CTR) ${bestCampaign?.ctr || 0}%`,
+            bestCampaign ? formatStatus(bestCampaign.status) : "⚪ غير محدد",
+          ]}
+        />
+
+        <PerformanceCard
+          icon="👤"
+          title="أفضل عميل"
+          value={bestCustomerCard?.name || "غير متوفر"}
+          lines={[
+            `${bestCustomerCard?.clicks || 0} Clicks`,
+            `📬 ${bestCustomerCard?.campaigns || 0} Campaigns`,
+            `❤️ معدل التفاعل ${bestCustomerCard?.engagementRate || 0}%`,
+          ]}
+        />
+
+        <PerformanceCard
+          icon="📦"
+          title="أفضل منتج"
+          value={bestProductCard?.name || "غير متوفر"}
+          lines={[
+            `${bestProductCard?.clicks || 0} Clicks`,
+            `📬 Used in ${bestProductCard?.campaigns || 0} Campaigns`,
+          ]}
         />
       </div>
 
@@ -413,7 +531,9 @@ export default function AnalyticsPage() {
           value={bestCampaign?.title || "غير متوفر"}
           description={
             bestCampaign
-              ? `عدد النقرات الحقيقية: ${bestCampaign.realClicks}`
+              ? `عدد النقرات الحقيقية: ${bestCampaign.realClicks} | معدل النقر (CTR): ${bestCampaign.ctr}% | الحالة: ${formatStatus(
+                  bestCampaign.status
+                )}`
               : ""
           }
         />
@@ -424,13 +544,7 @@ export default function AnalyticsPage() {
           title="أحدث حملة"
           value={latestCampaign?.title || "لا توجد حملات"}
           description={
-            latestCampaign
-              ? `الحالة: ${
-                  statusLabels[latestCampaign.status || ""] ||
-                  latestCampaign.status ||
-                  "غير محدد"
-                }`
-              : ""
+            latestCampaign ? `الحالة: ${formatStatus(latestCampaign.status)}` : ""
           }
         />
 
@@ -457,34 +571,44 @@ export default function AnalyticsPage() {
         <RankingCard title="أفضل 5 عملاء" items={topCustomers} />
       </div>
 
+      <div className="mt-10 grid gap-6 xl:grid-cols-2">
+        <CampaignCtrTable campaigns={ctrLeaderboard} />
+        <CustomerEngagementTable customers={customerEngagement} />
+      </div>
+
       <div className="mt-10 rounded-3xl bg-white p-6 shadow-sm border">
         <h2 className="text-2xl font-bold">أكثر الحملات تفاعلًا</h2>
 
         <div className="mt-6 grid gap-4">
-          {topCampaigns.map((campaign) => (
-            <div key={campaign.id} className="rounded-2xl border p-4">
-              <h3 className="font-bold">{campaign.title}</h3>
+          {topCampaigns.length === 0 ? (
+            <p className="text-sm text-slate-500">لا توجد بيانات كافية</p>
+          ) : (
+            topCampaigns.map((campaign) => (
+              <div key={campaign.id} className="rounded-2xl border p-4">
+                <h3 className="font-bold">{campaign.title}</h3>
 
-              <p className="mt-2 text-sm text-slate-500">
-                المنتج: {campaign.product_name || "غير محدد"}
-              </p>
+                <p className="mt-2 text-sm text-slate-500">
+                  المنتج: {campaign.product_name || "غير محدد"}
+                </p>
 
-              <p className="mt-1 text-sm text-slate-500">
-                العميل: {campaign.customer_email || "غير محدد"}
-              </p>
+                <p className="mt-1 text-sm text-slate-500">
+                  العميل: {campaign.customer_email || "غير محدد"}
+                </p>
 
-              <p className="mt-1 text-sm text-slate-500">
-                النقرات الحقيقية: {campaign.realClicks}
-              </p>
+                <p className="mt-1 text-sm text-slate-500">
+                  النقرات الحقيقية: {campaign.realClicks}
+                </p>
 
-              <p className="mt-1 text-sm text-slate-500">
-                الحالة:{" "}
-                {statusLabels[campaign.status || ""] ||
-                  campaign.status ||
-                  "غير محدد"}
-              </p>
-            </div>
-          ))}
+                <p className="mt-1 text-sm text-slate-500">
+                  📈 معدل النقر (CTR): {campaign.ctr}%
+                </p>
+
+                <p className="mt-1 text-sm text-slate-500">
+                  الحالة: {formatStatus(campaign.status)}
+                </p>
+              </div>
+            ))
+          )}
         </div>
       </div>
     </div>
@@ -504,6 +628,37 @@ function Card({
     <div className="rounded-3xl bg-white p-6 shadow-sm border">
       <p className="text-slate-500">{title}</p>
       <h2 className={`mt-4 text-4xl font-bold ${color}`}>{value}</h2>
+    </div>
+  );
+}
+
+function PerformanceCard({
+  icon,
+  title,
+  value,
+  lines,
+}: {
+  icon: string;
+  title: string;
+  value: string;
+  lines: string[];
+}) {
+  return (
+    <div className="rounded-3xl bg-white p-6 shadow-sm border">
+      <div className="flex items-center gap-3">
+        <span className="text-3xl">{icon}</span>
+        <p className="text-slate-500">{title}</p>
+      </div>
+
+      <h2 className="mt-5 text-2xl font-bold">{value}</h2>
+
+      <div className="mt-5 grid gap-2">
+        {lines.map((line, index) => (
+          <p key={`${line}-${index}`} className="text-sm text-slate-600">
+            {line}
+          </p>
+        ))}
+      </div>
     </div>
   );
 }
@@ -602,6 +757,96 @@ function RankingCard({
               </div>
             </div>
           ))
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CampaignCtrTable({
+  campaigns,
+}: {
+  campaigns: CampaignPerformance[];
+}) {
+  return (
+    <div className="rounded-3xl bg-white p-6 shadow-sm border">
+      <h2 className="text-2xl font-bold">📈 CTR Leaderboard</h2>
+
+      <p className="mt-2 text-sm text-slate-500">
+        ترتيب الحملات حسب معدل النقر (CTR) اعتمادًا على النقرات الحقيقية.
+      </p>
+
+      <div className="mt-6 overflow-x-auto">
+        {campaigns.length === 0 ? (
+          <p className="text-sm text-slate-500">لا توجد بيانات كافية</p>
+        ) : (
+          <table className="w-full min-w-[600px] text-right text-sm">
+            <thead>
+              <tr className="border-b text-slate-500">
+                <th className="py-3 font-medium">الحملة</th>
+                <th className="py-3 font-medium">النقرات</th>
+                <th className="py-3 font-medium">معدل النقر (CTR)</th>
+                <th className="py-3 font-medium">الحالة</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {campaigns.map((campaign) => (
+                <tr key={campaign.id} className="border-b last:border-0">
+                  <td className="py-4 font-bold">
+                    {campaign.title || "حملة بدون اسم"}
+                  </td>
+                  <td className="py-4">{campaign.realClicks}</td>
+                  <td className="py-4">{campaign.ctr}%</td>
+                  <td className="py-4">{formatStatus(campaign.status)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function CustomerEngagementTable({
+  customers,
+}: {
+  customers: CustomerEngagement[];
+}) {
+  return (
+    <div className="rounded-3xl bg-white p-6 shadow-sm border">
+      <h2 className="text-2xl font-bold">❤️ Customer Engagement</h2>
+
+      <p className="mt-2 text-sm text-slate-500">
+        ترتيب العملاء حسب النقرات وعدد الحملات التي تفاعلوا معها.
+      </p>
+
+      <div className="mt-6 overflow-x-auto">
+        {customers.length === 0 ? (
+          <p className="text-sm text-slate-500">لا توجد بيانات كافية</p>
+        ) : (
+          <table className="w-full min-w-[600px] text-right text-sm">
+            <thead>
+              <tr className="border-b text-slate-500">
+                <th className="py-3 font-medium">العميل</th>
+                <th className="py-3 font-medium">Clicks</th>
+                <th className="py-3 font-medium">Campaigns</th>
+                <th className="py-3 font-medium">Rate</th>
+              </tr>
+            </thead>
+
+            <tbody>
+              {customers.map((customer) => (
+                <tr key={customer.name} className="border-b last:border-0">
+                  <td className="py-4 font-bold">{customer.name}</td>
+                  <td className="py-4">{customer.clicks}</td>
+                  <td className="py-4">{customer.campaigns}</td>
+                  <td className="py-4">{customer.engagementRate}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         )}
       </div>
     </div>
